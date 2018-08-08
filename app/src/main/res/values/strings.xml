@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">ListViewTest</string>
+    <string name="empty">This is no image!</string>
+</resources>
