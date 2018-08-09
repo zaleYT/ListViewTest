@@ -1,17 +1,27 @@
 package com.travis.recyclerview;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 
+import com.travis.listviewtest.DiskLruCache;
 import com.travis.listviewtest.R;
+import com.travis.listviewtest.Util;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,6 +36,9 @@ public class RecyclerViewActivity extends Activity {
     public static final String TAG = "RecyclerViewActivity";
 
     private RecyclerView mRecyclerView;
+
+    private boolean isInit = false;
+    private RecyclerAdpater mRecyclerAdapter;
 
     private List<String> list = new ArrayList<String>();
 
@@ -54,12 +67,35 @@ public class RecyclerViewActivity extends Activity {
         mRecyclerView = (RecyclerView)findViewById(R.id.recycler_view);
         mRecyclerView.setLayoutManager(new GridLayoutManager(this, 3));
 
+        if (Build.VERSION.SDK_INT > 23){
+            getRuntimePermission();
+        }else {
+            init();
+        }
+    }
+
+    private void init(){
         initImagePath();
 
-        RecyclerAdpater adpater = new RecyclerAdpater(this, list);
-        mRecyclerView.setAdapter(adpater);
+        DiskLruCache diskLruCache = null;
+
+        File dir = Util.getDiskCacheDir(this, "bitmap");
+        if (!dir.exists()){
+            dir.mkdir();
+        }
+
+        try {
+            diskLruCache = DiskLruCache.open(dir,
+                    Util.getAppVersion(this), 1, 100 * 1024 * 1024);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        mRecyclerAdapter = new RecyclerAdpater(this, list, mRecyclerView, diskLruCache);
+        mRecyclerView.setAdapter(mRecyclerAdapter);
         mRecyclerView.addOnScrollListener(new RecycleScrollListener());
     }
+
 
     private void initImagePath() {
         list = new ArrayList<String>();
@@ -71,6 +107,7 @@ public class RecyclerViewActivity extends Activity {
                 null,
                 null
         );
+
         if (cursor != null){
             String path;
             while (cursor.moveToNext()){
@@ -79,6 +116,7 @@ public class RecyclerViewActivity extends Activity {
                 //Log.d(TAG, "image, path:" + cursor.getString(INDEX_IMAGE_PATH));
             }
         }
+
         cursor.close();
     }
 
@@ -92,21 +130,78 @@ public class RecyclerViewActivity extends Activity {
 
         @Override
         public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
-            super.onScrollStateChanged(recyclerView, newState);
+            //super.onScrollStateChanged(recyclerView, newState);
+
+            if (newState == RecyclerView.SCROLL_STATE_IDLE){
+                for (int i = firstVisibleIndex; i <= lastVisibleIndex; i++){
+                    String url = list.get(i);
+                    String md5 = Util.md5(url);
+
+                    mRecyclerAdapter.loadImage(url, md5, i);
+                }
+            }else {
+                mRecyclerAdapter.cancleTask();
+            }
         }
 
         @Override
         public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-            super.onScrolled(recyclerView, dx, dy);
+            //super.onScrolled(recyclerView, dx, dy);
+
             RecyclerView.LayoutManager manager = recyclerView.getLayoutManager();
             if (manager instanceof  GridLayoutManager){
 
-                int first1 =((GridLayoutManager)manager).findFirstCompletelyVisibleItemPosition();
-                int first2 = ((GridLayoutManager)manager).findFirstVisibleItemPosition();
-                int last1 = ((GridLayoutManager)manager).findLastCompletelyVisibleItemPosition();
-                int last2 = ((GridLayoutManager)manager).findLastVisibleItemPosition();
+                //int first1 =((GridLayoutManager)manager).findFirstCompletelyVisibleItemPosition();
+                //int last1 = ((GridLayoutManager)manager).findLastCompletelyVisibleItemPosition();
+                firstVisibleIndex = ((GridLayoutManager)manager).findFirstVisibleItemPosition();
+                lastVisibleIndex = ((GridLayoutManager)manager).findLastVisibleItemPosition();
+                int total = ((GridLayoutManager)manager).getItemCount();
 
-                Log.d(TAG, String.format("first1= %s, first2= %s, last1= %s, last2= %s", first1,first2,last1,last2));
+                Log.d(TAG, "total:" +total);
+
+                if (total > 0 && !isInit){
+
+                    for (int i = firstVisibleIndex; i <= lastVisibleIndex; i++){
+                        String url = list.get(i);
+                        String md5 = Util.md5(url);
+
+                        mRecyclerAdapter.loadImage(url, md5, i);
+                    }
+
+                    isInit = true;
+                }
+            }
+        }
+    }
+
+    private void getRuntimePermission() {
+        // 没有获得权限
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED){
+            // 如果APP的权限曾经被用户拒绝过，就需要在这里更用户做出解释
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this,
+                    Manifest.permission.READ_EXTERNAL_STORAGE)){
+                //Toast.makeText(this, "please give me the permission", Toast.LENGTH_LONG).show();
+            }
+            // 请求权限
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
+                    EXTERNAL_STORAGE_REQ_CODE);
+        }else {
+            // 获得了权限
+            init();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        if (requestCode == EXTERNAL_STORAGE_REQ_CODE){
+            if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                init();
+            }else{
+                finish();
             }
         }
     }

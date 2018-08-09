@@ -37,7 +37,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 /** Junk drawer of utility methods. */
-final class Util {
+public final class Util {
   static final Charset US_ASCII = Charset.forName("US-ASCII");
   static final Charset UTF_8 = Charset.forName("UTF-8");
   private static final String TAG = "Util";
